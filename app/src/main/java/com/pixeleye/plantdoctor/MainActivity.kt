@@ -39,6 +39,7 @@ import com.pixeleye.plantdoctor.ui.screens.LoginScreen
 import com.pixeleye.plantdoctor.ui.screens.OnboardingScreen
 import com.pixeleye.plantdoctor.ui.screens.ResultScreen
 import com.pixeleye.plantdoctor.ui.screens.SettingsScreen
+import com.pixeleye.plantdoctor.ui.screens.SplashScreen
 import com.pixeleye.plantdoctor.ui.theme.PlantDoctorTheme
 import com.pixeleye.plantdoctor.viewmodel.AuthState
 import com.pixeleye.plantdoctor.viewmodel.AuthViewModel
@@ -86,70 +87,17 @@ fun PlantDoctorApp(
             LoadingSplash()
         }
 
-        is AuthState.Authenticated -> {
-            val prefs by userPreferencesRepository.userPreferences
-                .collectAsStateWithLifecycle(
-                    initialValue = com.pixeleye.plantdoctor.data.UserPreferences()
-                )
-
-            val onboardingComplete = prefs.onboardingCompleted
-
-            if (onboardingComplete) {
-                PlantDoctorNavHost(
-                    userPreferencesRepository = userPreferencesRepository,
-                    onSignOut = { authViewModel.signOut() }
-                )
-            } else {
-                OnboardingRoute(
-                    userPreferencesRepository = userPreferencesRepository
-                )
-            }
-        }
-
-        is AuthState.Unauthenticated -> {
-            LoginScreen(
-                isLoading = false,
-                errorMessage = null,
-                onGoogleSignIn = { authViewModel.signInWithGoogle() }
-            )
-        }
-
+        is AuthState.Authenticated,
+        is AuthState.Unauthenticated,
         is AuthState.Error -> {
-            LoginScreen(
-                isLoading = false,
-                errorMessage = (authState as AuthState.Error).message,
-                onGoogleSignIn = {
-                    authViewModel.clearError()
-                    authViewModel.signInWithGoogle()
-                }
+            PlantDoctorNavHost(
+                authViewModel = authViewModel,
+                authState = authState,
+                userPreferencesRepository = userPreferencesRepository,
+                onSignOut = { authViewModel.signOut() }
             )
         }
     }
-}
-
-@Composable
-private fun OnboardingRoute(
-    userPreferencesRepository: UserPreferencesRepository
-) {
-    val scope = rememberCoroutineScope()
-    var isSaving by remember { mutableStateOf(false) }
-
-    OnboardingScreen(
-        onSaveAndContinue = { country, language, aiLanguage ->
-            isSaving = true
-            scope.launch {
-                userPreferencesRepository.saveUserPreferences(
-                    country = country,
-                    language = language,
-                    selectedAiLanguage = aiLanguage,
-                    onboardingCompleted = true
-                )
-                // The preference Flow will update automatically,
-                // which triggers recomposition and shows PlantDoctorNavHost
-            }
-        },
-        isSaving = isSaving
-    )
 }
 
 @Composable
@@ -168,6 +116,8 @@ private fun LoadingSplash() {
 
 @Composable
 fun PlantDoctorNavHost(
+    authViewModel: AuthViewModel,
+    authState: AuthState,
     userPreferencesRepository: UserPreferencesRepository,
     onSignOut: () -> Unit = {}
 ) {
@@ -197,8 +147,69 @@ fun PlantDoctorNavHost(
 
     NavHost(
         navController = navController,
-        startDestination = "home"
+        startDestination = "splash"
     ) {
+        composable("splash") {
+            SplashScreen(
+                authState = authState,
+                userPreferencesRepository = userPreferencesRepository,
+                onNavigate = { destination ->
+                    navController.navigate(destination) {
+                        popUpTo("splash") { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        composable("login") {
+            var isSaving by remember { mutableStateOf(false) }
+
+            LoginScreen(
+                isLoading = isSaving,
+                errorMessage = when (authState) {
+                    is AuthState.Error -> (authState as AuthState.Error).message
+                    else -> null
+                },
+                onGoogleSignIn = {
+                    if (authState is AuthState.Error) {
+                        authViewModel.clearError()
+                    }
+                    authViewModel.signInWithGoogle()
+                }
+            )
+
+            // After successful sign-in, navigate to splash to re-evaluate routing
+            LaunchedEffect(authState) {
+                if (authState is AuthState.Authenticated) {
+                    navController.navigate("splash") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                }
+            }
+        }
+
+        composable("onboarding") {
+            var isSaving by remember { mutableStateOf(false) }
+
+            OnboardingScreen(
+                onSaveAndContinue = { country, language, aiLanguage ->
+                    isSaving = true
+                    scope.launch {
+                        userPreferencesRepository.saveUserPreferences(
+                            country = country,
+                            language = language,
+                            selectedAiLanguage = aiLanguage,
+                            onboardingCompleted = true
+                        )
+                        navController.navigate("home") {
+                            popUpTo("onboarding") { inclusive = true }
+                        }
+                    }
+                },
+                isSaving = isSaving
+            )
+        }
+
         composable("home") {
             HomeScreen(
                 uiState = homeUiState,

@@ -290,22 +290,26 @@ fun HomeScreen(
 private fun LoadingContent(
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Box(
         modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        contentAlignment = Alignment.Center
     ) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(48.dp),
-            color = MaterialTheme.colorScheme.primary,
-            strokeWidth = 4.dp
-        )
-        Spacer(modifier = Modifier.height(20.dp))
-        Text(
-            text = "Loading scan history...",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(40.dp),
+                color = MaterialTheme.colorScheme.primary,
+                strokeWidth = 3.dp
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Text(
+                text = "Loading history...",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -575,8 +579,8 @@ private fun PlantThumbnail(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.primaryContainer),
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center
     ) {
         if (!imageUrl.isNullOrBlank()) {
@@ -586,27 +590,33 @@ private fun PlantThumbnail(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
                 loading = {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        strokeWidth = 2.dp
-                    )
+                    // Strictly center and size the loader to prevent "ghost" expansion
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                            strokeWidth = 2.dp
+                        )
+                    }
                 },
                 error = {
                     Icon(
                         imageVector = Icons.Default.LocalFlorist,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(32.dp)
+                        contentDescription = "No image",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             )
         } else {
             Icon(
                 imageVector = Icons.Default.LocalFlorist,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(32.dp)
+                contentDescription = "No image available",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(24.dp)
             )
         }
     }

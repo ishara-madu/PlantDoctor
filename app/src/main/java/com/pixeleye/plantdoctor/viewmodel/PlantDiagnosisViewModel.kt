@@ -82,7 +82,9 @@ You MUST return ONLY a single valid JSON object — no markdown fences, no prose
 
 Rules:
 - If the image DOES contain a plant: set "is_plant" to true, provide a detailed diagnosis of any diseases, nutrient deficiencies, or pests in "diagnosis_summary", and list actionable treatment steps in "action_plan".
-- If the image does NOT contain a plant: set "is_plant" to false, describe what the image actually shows in "diagnosis_summary" (e.g. "This appears to be a photo of a golden retriever."), and set "action_plan" to an empty array [].""".trimIndent())
+- If the image does NOT contain a plant: set "is_plant" to false, describe what the image actually shows in "diagnosis_summary" (e.g. "This appears to be a photo of a golden retriever."), and set "action_plan" to an empty array [].
+
+CRITICAL SAFETY RULE: If you recommend any chemical treatments, pesticides, or fertilizers, DO NOT provide exact dosages (e.g., do not say 'mix 5ml per liter'). Instead, suggest the active ingredient or general type of treatment, and STRICTLY ADVISE the user to 'always read the manufacturer's label for the correct dosage and safety instructions'. You may, however, suggest the best time of day to apply the treatment (e.g., early morning or late evening).""".trimIndent())
             },
             generationConfig = generationConfig {
                 temperature = 0.7f

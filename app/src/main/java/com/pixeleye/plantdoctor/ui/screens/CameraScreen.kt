@@ -4,28 +4,45 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import android.view.MotionEvent
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.Preview
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.Button
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -35,16 +52,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.vector.ImageVector
+
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import coil.compose.AsyncImage
 import com.pixeleye.plantdoctor.utils.CameraUtils
-import java.util.concurrent.Executor
+import java.util.concurrent.TimeUnit
 
+// ── Public entry point ──────────────────────────────────────────
 @Composable
 fun CameraScreen(
     onImageCaptured: (Uri) -> Unit,
@@ -52,18 +78,14 @@ fun CameraScreen(
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
 
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.CAMERA
+                context, Manifest.permission.CAMERA
             ) == PackageManager.PERMISSION_GRANTED
         )
     }
-
-    var isCapturing by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -81,9 +103,7 @@ fun CameraScreen(
         CameraContent(
             onImageCaptured = onImageCaptured,
             onError = onError,
-            onCancel = onCancel,
-            isCapturing = isCapturing,
-            onCapturingChange = { isCapturing = it }
+            onCancel = onCancel
         )
     } else {
         PermissionDeniedContent(
@@ -95,21 +115,51 @@ fun CameraScreen(
     }
 }
 
+// ── Main camera UI ──────────────────────────────────────────────
 @Composable
 private fun CameraContent(
     onImageCaptured: (Uri) -> Unit,
     onError: (String) -> Unit,
-    onCancel: () -> Unit,
-    isCapturing: Boolean,
-    onCapturingChange: (Boolean) -> Unit
+    onCancel: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val previewView = remember { PreviewView(context) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
-    val executor = remember { CameraUtils.getCameraExecutor(context) }
+    var camera by remember { mutableStateOf<Camera?>(null) }
+    var isCapturing by remember { mutableStateOf(false) }
 
+    // ── Focus ring state ────────────────────────────────────────
+    // null = hidden, non-null Offset = show ring at these native pixel coords
+    var focusRingOffset by remember { mutableStateOf<Offset?>(null) }
+    val focusRingAlpha by animateFloatAsState(
+        targetValue = if (focusRingOffset != null) 1f else 0f,
+        animationSpec = tween(durationMillis = 150),
+        label = "focus_ring_alpha"
+    )
+
+    // Auto-hide after 900ms whenever a new tap position is set
+    LaunchedEffect(focusRingOffset) {
+        if (focusRingOffset != null) {
+            kotlinx.coroutines.delay(900L)
+            focusRingOffset = null
+        }
+    }
+
+    // ── Confirmation state ──────────────────────────────────────
+    var capturedUri by remember { mutableStateOf<Uri?>(null) }
+
+    // ── Gallery picker ──────────────────────────────────────────
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            capturedUri = uri
+        }
+    }
+
+    // ── CameraX setup ───────────────────────────────────────────
     DisposableEffect(Unit) {
         CameraUtils.createCameraProvider(
             context = context,
@@ -123,13 +173,14 @@ private fun CameraContent(
 
                 try {
                     cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
+                    val boundCamera = cameraProvider.bindToLifecycle(
                         lifecycleOwner,
                         CameraSelector.DEFAULT_BACK_CAMERA,
                         preview,
                         newImageCapture
                     )
                     imageCapture = newImageCapture
+                    camera = boundCamera
                 } catch (e: Exception) {
                     onError("Camera binding failed: ${e.message}")
                 }
@@ -140,21 +191,203 @@ private fun CameraContent(
         )
 
         onDispose {
+            camera = null
             imageCapture = null
         }
     }
 
+    // ── UI ──────────────────────────────────────────────────────
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { previewView },
-            modifier = Modifier.fillMaxSize()
+        if (capturedUri != null) {
+            // ═══════════════════════════════════════════════════════
+            // IMAGE CONFIRMATION STATE
+            // ═══════════════════════════════════════════════════════
+            ConfirmationContent(
+                uri = capturedUri!!,
+                onRetake = { capturedUri = null },
+                onConfirm = { onImageCaptured(capturedUri!!) }
+            )
+        } else {
+            // ═══════════════════════════════════════════════════════
+            // LIVE CAMERA STATE
+            // ═══════════════════════════════════════════════════════
+
+            // Camera preview with tap-to-focus via native touch listener.
+            // We attach the listener inside `update` so `camera` is always captured
+            // from the latest recomposition closure, and PreviewView.meteringPointFactory
+            // guarantees correct coordinate mapping to the camera surface.
+            AndroidView(
+                factory = { ctx ->
+                    previewView.apply {
+                        // Accessibility: let the system know performClick() will be called
+                        isClickable = true
+                    }
+                },
+                update = { view ->
+                    val currentCamera = camera
+                    view.setOnTouchListener { v, event ->
+                        if (event.action == MotionEvent.ACTION_UP && currentCamera != null) {
+                            val factory = (v as PreviewView).meteringPointFactory
+                            val point = factory.createPoint(event.x, event.y)
+                            val action = FocusMeteringAction.Builder(
+                                point,
+                                FocusMeteringAction.FLAG_AF
+                            )
+                                .setAutoCancelDuration(3, TimeUnit.SECONDS)
+                                .build()
+                            currentCamera.cameraControl.startFocusAndMetering(action)
+                            // Update Compose state to drive the focus ring overlay
+                            focusRingOffset = Offset(event.x, event.y)
+                            v.performClick()
+                        }
+                        true
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Focus ring overlay — clean, anti-aliased, layered glow ring
+            // Guard: skip composition entirely when fully faded out
+            if (focusRingAlpha > 0f) {
+                val focusPx = focusRingOffset
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    if (focusPx != null) {
+                        val ringRadius = 36.dp.toPx()
+
+                        // Layer 1: soft glow — wider, semi-transparent ring underneath
+                        drawCircle(
+                            color = Color.White,
+                            radius = ringRadius,
+                            center = focusPx,
+                            style = Stroke(width = 8.dp.toPx()),
+                            alpha = focusRingAlpha * 0.18f
+                        )
+
+                        // Layer 2: crisp 1.5dp main ring on top — fully anti-aliased
+                        drawCircle(
+                            color = Color.White,
+                            radius = ringRadius,
+                            center = focusPx,
+                            style = Stroke(width = 1.5.dp.toPx()),
+                            alpha = focusRingAlpha
+                        )
+                    }
+                }
+            }
+
+            // Close button — safe area padding
+            IconButton(
+                onClick = onCancel,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 16.dp)
+                    .statusBarsPadding()
+                    .background(
+                        color = Color.Black.copy(alpha = 0.5f),
+                        shape = CircleShape
+                    )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = Color.White
+                )
+            }
+
+            // Bottom bar: gallery + shutter
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.35f))
+                    .padding(horizontal = 24.dp, vertical = 28.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Gallery button
+                IconButton(
+                    onClick = {
+                        galleryLauncher.launch(
+                            PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        )
+                    },
+                    modifier = Modifier
+                        .size(52.dp)
+                        .background(
+                            color = Color.White.copy(alpha = 0.15f),
+                            shape = CircleShape
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PhotoLibrary,
+                        contentDescription = "Gallery",
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+
+                // Shutter button
+                CaptureButton(
+                    isCapturing = isCapturing,
+                    onClick = {
+                        val currentImageCapture = imageCapture
+                        if (currentImageCapture != null && !isCapturing) {
+                            isCapturing = true
+                            CameraUtils.captureImage(
+                                imageCapture = currentImageCapture,
+                                context = context,
+                                executor = CameraUtils.getCameraExecutor(context),
+                                onImageCaptured = { uri ->
+                                    isCapturing = false
+                                    capturedUri = uri
+                                },
+                                onError = { exception ->
+                                    isCapturing = false
+                                    onError("Failed to capture image: ${exception.message}")
+                                }
+                            )
+                        }
+                    }
+                )
+
+                // Invisible spacer to keep shutter centered
+                Spacer(modifier = Modifier.size(52.dp))
+            }
+        }
+    }
+}
+
+// ── Image confirmation overlay ──────────────────────────────────
+@Composable
+private fun ConfirmationContent(
+    uri: Uri,
+    onRetake: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        // Full-screen image
+        AsyncImage(
+            model = uri,
+            contentDescription = "Selected image",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .align(Alignment.Center)
         )
 
+        // Close button on confirmation view
         IconButton(
-            onClick = onCancel,
+            onClick = onRetake,
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(16.dp)
+                .padding(start = 16.dp)
+                .statusBarsPadding()
                 .background(
                     color = Color.Black.copy(alpha = 0.5f),
                     shape = CircleShape
@@ -167,40 +400,75 @@ private fun CameraContent(
             )
         }
 
-        Box(
+        // Bottom action bar
+        Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(Color.Black.copy(alpha = 0.3f))
-                .padding(vertical = 32.dp),
-            contentAlignment = Alignment.Center
+                .background(Color.Black.copy(alpha = 0.6f))
+                .padding(horizontal = 32.dp, vertical = 28.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            CaptureButton(
-                isCapturing = isCapturing,
-                onClick = {
-                    val currentImageCapture = imageCapture
-                    if (currentImageCapture != null && !isCapturing) {
-                        onCapturingChange(true)
-                        CameraUtils.captureImage(
-                            imageCapture = currentImageCapture,
-                            context = context,
-                            executor = executor,
-                            onImageCaptured = { uri ->
-                                onCapturingChange(false)
-                                onImageCaptured(uri)
-                            },
-                            onError = { exception ->
-                                onCapturingChange(false)
-                                onError("Failed to capture image: ${exception.message}")
-                            }
-                        )
-                    }
-                }
+            // Retake
+            ActionButton(
+                icon = Icons.Default.Refresh,
+                label = "Retake",
+                containerColor = Color.White.copy(alpha = 0.2f),
+                contentColor = Color.White,
+                onClick = onRetake
+            )
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            // Confirm
+            ActionButton(
+                icon = Icons.Default.Check,
+                label = "Confirm",
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                onClick = onConfirm
             )
         }
     }
 }
 
+// ── Confirmation action button ──────────────────────────────────
+@Composable
+private fun ActionButton(
+    icon: ImageVector,
+    label: String,
+    containerColor: Color,
+    contentColor: Color,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier
+                .size(60.dp)
+                .background(color = containerColor, shape = CircleShape)
+                .border(width = 2.dp, color = contentColor.copy(alpha = 0.3f), shape = CircleShape)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = contentColor,
+                modifier = Modifier.size(28.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White
+        )
+    }
+}
+
+// ── Shutter button ──────────────────────────────────────────────
 @Composable
 private fun CaptureButton(
     isCapturing: Boolean,
@@ -223,12 +491,12 @@ private fun CaptureButton(
             IconButton(
                 onClick = onClick,
                 modifier = Modifier
-                    .size(64.dp)
+                    .size(68.dp)
                     .background(MaterialTheme.colorScheme.primary, CircleShape)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(58.dp)
                         .background(Color.White, CircleShape)
                 )
             }
@@ -236,6 +504,7 @@ private fun CaptureButton(
     }
 }
 
+// ── Permission denied state ─────────────────────────────────────
 @Composable
 private fun PermissionDeniedContent(
     onRequestPermission: () -> Unit,
