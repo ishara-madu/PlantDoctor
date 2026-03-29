@@ -17,6 +17,7 @@ import com.pixeleye.plantdoctor.data.api.DiagnosisResponse
 import com.pixeleye.plantdoctor.data.api.PlantScanDto
 import com.pixeleye.plantdoctor.data.api.SupabaseClientProvider
 import com.pixeleye.plantdoctor.data.api.PlantScanRepository
+import com.pixeleye.plantdoctor.data.api.UserQuotaRepository
 import io.github.jan.supabase.gotrue.auth
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.storage.storage
@@ -56,7 +57,8 @@ private data class GeminiAnalysisResponse(
 
 class PlantDiagnosisViewModel(
     private val userPreferencesRepository: UserPreferencesRepository,
-    private val plantScanRepository: PlantScanRepository
+    private val plantScanRepository: PlantScanRepository,
+    private val userQuotaRepository: UserQuotaRepository
 ) : ViewModel() {
 
     companion object {
@@ -108,6 +110,29 @@ CRITICAL SAFETY RULE: If you recommend any chemical treatments, pesticides, or f
 
     private val _uploadState = MutableStateFlow<UploadState>(UploadState.Idle)
     val uploadState: StateFlow<UploadState> = _uploadState.asStateFlow()
+
+    private val _scanCount = MutableStateFlow(0)
+    val scanCount: StateFlow<Int> = _scanCount.asStateFlow()
+
+    suspend fun checkQuota(): Int {
+        return try {
+            val count = userQuotaRepository.checkQuota()
+            _scanCount.value = count
+            count
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to check quota", e)
+            throw e
+        }
+    }
+
+    suspend fun incrementQuota() {
+        try {
+            userQuotaRepository.incrementQuota()
+            _scanCount.value = _scanCount.value + 1
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to increment quota", e)
+        }
+    }
 
     fun analyzePlant(image: Bitmap, userNotes: String = "", imageUri: Uri? = null, locationStr: String? = null) {
         viewModelScope.launch {
@@ -271,11 +296,12 @@ CRITICAL SAFETY RULE: If you recommend any chemical treatments, pesticides, or f
 
     class Factory(
         private val userPreferencesRepository: UserPreferencesRepository,
-        private val plantScanRepository: PlantScanRepository
+        private val plantScanRepository: PlantScanRepository,
+        private val userQuotaRepository: UserQuotaRepository
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return PlantDiagnosisViewModel(userPreferencesRepository, plantScanRepository) as T
+            return PlantDiagnosisViewModel(userPreferencesRepository, plantScanRepository, userQuotaRepository) as T
         }
     }
 }

@@ -61,18 +61,35 @@ import androidx.compose.ui.graphics.vector.ImageVector
 
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.pixeleye.plantdoctor.utils.CameraUtils
+import com.pixeleye.plantdoctor.utils.LocationHelper
+import com.pixeleye.plantdoctor.viewmodel.PlantDiagnosisViewModel
+import android.graphics.BitmapFactory
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.pixeleye.plantdoctor.viewmodel.DiagnosisState
 import java.util.concurrent.TimeUnit
+import com.google.android.gms.ads.rewarded.RewardedAd
+import com.pixeleye.plantdoctor.utils.loadRewardedAd
+import com.pixeleye.plantdoctor.utils.showRewardedAd
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 
 // ── Public entry point ──────────────────────────────────────────
 @Composable
 fun CameraScreen(
+    diagnosisViewModel: PlantDiagnosisViewModel,
+    isPremium: Boolean = false,
     onImageCaptured: (Uri) -> Unit,
     onError: (String) -> Unit,
     onCancel: () -> Unit
@@ -101,6 +118,8 @@ fun CameraScreen(
 
     if (hasCameraPermission) {
         CameraContent(
+            diagnosisViewModel = diagnosisViewModel,
+            isPremium = isPremium,
             onImageCaptured = onImageCaptured,
             onError = onError,
             onCancel = onCancel
@@ -118,6 +137,8 @@ fun CameraScreen(
 // ── Main camera UI ──────────────────────────────────────────────
 @Composable
 private fun CameraContent(
+    diagnosisViewModel: PlantDiagnosisViewModel,
+    isPremium: Boolean,
     onImageCaptured: (Uri) -> Unit,
     onError: (String) -> Unit,
     onCancel: () -> Unit
@@ -129,6 +150,17 @@ private fun CameraContent(
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var camera by remember { mutableStateOf<Camera?>(null) }
     var isCapturing by remember { mutableStateOf(false) }
+
+    // ── Coordination ──────────────────────────────────────────
+    val scope = rememberCoroutineScope()
+    var capturedUri by remember { mutableStateOf<Uri?>(null) }
+
+    // ── Quota & Rewarded Ad state ─────────────────────────────
+    var showLimitDialog by remember { mutableStateOf(false) }
+    var rewardedAd by remember { mutableStateOf<RewardedAd?>(null) }
+    val activity = context as? android.app.Activity
+
+    // (Navigation logic is now handled immediately in onConfirm)
 
     // ── Focus ring state ────────────────────────────────────────
     // null = hidden, non-null Offset = show ring at these native pixel coords
@@ -147,8 +179,15 @@ private fun CameraContent(
         }
     }
 
+    // Load rewarded ad when screen opens
+    LaunchedEffect(Unit) {
+        loadRewardedAd(context) { ad ->
+            rewardedAd = ad
+        }
+    }
+
     // ── Confirmation state ──────────────────────────────────────
-    var capturedUri by remember { mutableStateOf<Uri?>(null) }
+    // (capturedUri moved up to coordination block)
 
     // ── Gallery picker ──────────────────────────────────────────
     val galleryLauncher = rememberLauncherForActivityResult(
@@ -205,7 +244,22 @@ private fun CameraContent(
             ConfirmationContent(
                 uri = capturedUri!!,
                 onRetake = { capturedUri = null },
-                onConfirm = { onImageCaptured(capturedUri!!) }
+                onConfirm = {
+                    scope.launch {
+                        try {
+                            val currentQuota = diagnosisViewModel.checkQuota()
+                            if (isPremium || currentQuota < 3) {
+                                diagnosisViewModel.incrementQuota()
+                                onImageCaptured(capturedUri!!)
+                            } else {
+                                showLimitDialog = true
+                            }
+                        } catch (e: Exception) {
+                            // If quota check fails, allow the scan to proceed
+                            onImageCaptured(capturedUri!!)
+                        }
+                    }
+                }
             )
         } else {
             // ═══════════════════════════════════════════════════════
@@ -355,6 +409,62 @@ private fun CameraContent(
                 // Invisible spacer to keep shutter centered
                 Spacer(modifier = Modifier.size(52.dp))
             }
+        }
+
+        // ── Daily Limit Reached Dialog ──────────────────────────
+        if (showLimitDialog) {
+            AlertDialog(
+                onDismissRequest = { showLimitDialog = false },
+                title = {
+                    Text(
+                        text = "Daily Limit Reached",
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                },
+                text = {
+                    Text(
+                        text = "You have used your 3 free scans for today. Watch a short video ad to unlock 1 more scan!",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showLimitDialog = false
+                        if (activity != null) {
+                            showRewardedAd(
+                                activity = activity,
+                                ad = rewardedAd,
+                                onRewardEarned = {
+                                    // Reward earned — bypass limit and trigger analysis
+                                    rewardedAd = null
+                                    scope.launch {
+                                        onImageCaptured(capturedUri!!)
+                                    }
+                                    // Preload the next rewarded ad
+                                    loadRewardedAd(context) { newAd ->
+                                        rewardedAd = newAd
+                                    }
+                                },
+                                onAdDismissed = {
+                                    // Ad was dismissed without earning reward
+                                    rewardedAd = null
+                                    // Preload the next rewarded ad
+                                    loadRewardedAd(context) { newAd ->
+                                        rewardedAd = newAd
+                                    }
+                                }
+                            )
+                        }
+                    }) {
+                        Text("Watch Ad")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showLimitDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
     }
 }

@@ -74,6 +74,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.pixeleye.plantdoctor.ui.components.AdmobBanner
+import com.pixeleye.plantdoctor.ui.components.UpgradeButton
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -132,11 +136,13 @@ fun formatScanDate(isoDateString: String?): String {
 fun HomeScreen(
     uiState: HomeUiState,
     selectedAiLanguage: String = "English",
+    isPremium: Boolean = false,
     onScanPlantClick: () -> Unit,
     onViewResult: (PlantScanDto) -> Unit = {},
     onDeleteScan: (PlantScanDto) -> Unit = {},
     onRetry: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenPaywall: () -> Unit = {},
     onResume: () -> Unit = {}
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
@@ -168,6 +174,11 @@ fun HomeScreen(
                 )
             }
         },
+        bottomBar = {
+            if (!isPremium) {
+                AdmobBanner()
+            }
+        },
         topBar = {
             TopAppBar(
                 title = {
@@ -194,6 +205,10 @@ fun HomeScreen(
                     }
                 },
                 actions = {
+                    if (!isPremium) {
+                        UpgradeButton(onClick = onOpenPaywall)
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
                     IconButton(
                         onClick = onOpenSettings,
                         colors = IconButtonDefaults.iconButtonColors(

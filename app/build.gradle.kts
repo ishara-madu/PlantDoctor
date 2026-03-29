@@ -31,6 +31,7 @@ android {
         buildConfigField("String", "SUPABASE_URL", "\"${localProperties.getProperty("SUPABASE_URL", "")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${localProperties.getProperty("SUPABASE_ANON_KEY", "")}\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${localProperties.getProperty("GOOGLE_WEB_CLIENT_ID", "")}\"")
+        buildConfigField("String", "REVENUECAT_API_KEY", "\"${localProperties.getProperty("REVENUECAT_API_KEY", "")}\"")
     }
 
     buildTypes {
@@ -123,4 +124,13 @@ dependencies {
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
+
+    // AdMob SDK
+    implementation("com.google.android.gms:play-services-ads:23.0.0")
+
+    // RevenueCat (In-App Purchases)
+    implementation("com.revenuecat.purchases:purchases:8.25.0")
+
+    // Fix for CameraX ListenableFuture conflict
+    implementation("com.google.guava:guava:33.0.0-android")
 }

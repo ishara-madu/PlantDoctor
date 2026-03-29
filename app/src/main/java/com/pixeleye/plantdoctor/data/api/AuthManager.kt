@@ -14,7 +14,8 @@ import io.github.jan.supabase.gotrue.providers.builtin.IDToken
 
 class AuthManager(
     private val supabaseClient: SupabaseClient,
-    private val webClientId: String
+    private val webClientId: String,
+    private val billingManager: BillingManager? = null
 ) {
 
     companion object {
@@ -75,6 +76,11 @@ class AuthManager(
             val session = supabaseClient.auth.currentSessionOrNull()
             Log.d(TAG, "Supabase sign-in successful: ${session?.user?.email}")
 
+            // Link RevenueCat to this Supabase user ID
+            session?.user?.id?.let { userId ->
+                billingManager?.identifyUser(userId)
+            }
+
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Google sign-in failed", e)
@@ -99,7 +105,17 @@ class AuthManager(
     suspend fun restoreSession(): Boolean {
         return try {
             supabaseClient.auth.awaitInitialization()
-            supabaseClient.auth.currentSessionOrNull() != null
+            val session = supabaseClient.auth.currentSessionOrNull()
+            val restored = session != null
+
+            // Link RevenueCat to this Supabase user ID on session restore
+            if (restored) {
+                session?.user?.id?.let { userId ->
+                    billingManager?.identifyUser(userId)
+                }
+            }
+
+            restored
         } catch (e: Exception) {
             Log.e(TAG, "Session restore failed", e)
             false

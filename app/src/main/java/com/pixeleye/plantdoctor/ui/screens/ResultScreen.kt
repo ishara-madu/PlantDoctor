@@ -80,7 +80,13 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.LaunchedEffect
 import coil.compose.SubcomposeAsyncImage
+import com.pixeleye.plantdoctor.utils.loadInterstitialAd
+import com.pixeleye.plantdoctor.utils.showInterstitialAd
+import com.google.android.gms.ads.interstitial.InterstitialAd
+import android.app.Activity
+import androidx.compose.ui.platform.LocalContext
 
 import com.pixeleye.plantdoctor.data.api.DiagnosisResponse
 import com.pixeleye.plantdoctor.ui.theme.TreatmentAccent
@@ -96,9 +102,34 @@ fun ResultScreen(
     diagnosisData: DiagnosisResponse?,
     confidence: Float? = null,
     isLoading: Boolean = false,
+    showAd: Boolean = false,
+    isPremium: Boolean = false,
     onBack: () -> Unit,
     onNewScan: () -> Unit
 ) {
+    val context = LocalContext.current
+    var mInterstitialAd by remember { mutableStateOf<InterstitialAd?>(null) }
+    var adShown by remember { mutableStateOf(false) }
+
+    // Load and Show Ad if requested and not premium
+    LaunchedEffect(Unit) {
+        if (showAd && !isPremium) {
+            loadInterstitialAd(context) { ad ->
+                mInterstitialAd = ad
+            }
+        }
+    }
+
+    LaunchedEffect(mInterstitialAd) {
+        if (showAd && !isPremium && mInterstitialAd != null && !adShown) {
+            val activity = context as? Activity
+            if (activity != null) {
+                showInterstitialAd(activity, mInterstitialAd) {
+                    adShown = true
+                }
+            }
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(

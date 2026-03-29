@@ -3,10 +3,13 @@ package com.pixeleye.plantdoctor.viewmodel
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pixeleye.plantdoctor.BuildConfig
 import com.pixeleye.plantdoctor.data.api.AuthManager
+import com.pixeleye.plantdoctor.data.api.BillingManager
 import com.pixeleye.plantdoctor.data.api.SupabaseClientProvider
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +22,10 @@ sealed class AuthState {
     data class Error(val message: String) : AuthState()
 }
 
-class AuthViewModel(application: Application) : AndroidViewModel(application) {
+class AuthViewModel(
+    application: Application,
+    private val billingManager: BillingManager? = null
+) : AndroidViewModel(application) {
 
     companion object {
         private const val TAG = "AuthViewModel"
@@ -30,7 +36,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             supabaseUrl = BuildConfig.SUPABASE_URL,
             supabaseKey = BuildConfig.SUPABASE_ANON_KEY
         ),
-        webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
+        webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID,
+        billingManager = billingManager
     )
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Loading)
@@ -73,8 +80,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun signOut() {
-        viewModelScope.launch {
+    fun signOut(): kotlinx.coroutines.Deferred<Unit> {
+        return viewModelScope.async {
+            billingManager?.logOut()
             authManager.signOut()
             _authState.value = AuthState.Unauthenticated
         }
@@ -82,5 +90,15 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearError() {
         _authState.value = AuthState.Unauthenticated
+    }
+
+    class Factory(
+        private val application: Application,
+        private val billingManager: BillingManager
+    ) : androidx.lifecycle.ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            return AuthViewModel(application, billingManager) as T
+        }
     }
 }

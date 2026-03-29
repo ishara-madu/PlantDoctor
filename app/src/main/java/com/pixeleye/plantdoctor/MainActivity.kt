@@ -37,6 +37,7 @@ import com.pixeleye.plantdoctor.ui.screens.CameraScreen
 import com.pixeleye.plantdoctor.ui.screens.HomeScreen
 import com.pixeleye.plantdoctor.ui.screens.LoginScreen
 import com.pixeleye.plantdoctor.ui.screens.OnboardingScreen
+import com.pixeleye.plantdoctor.ui.screens.PaywallScreen
 import com.pixeleye.plantdoctor.ui.screens.ResultScreen
 import com.pixeleye.plantdoctor.ui.screens.SettingsScreen
 import com.pixeleye.plantdoctor.ui.screens.SplashScreen
@@ -50,15 +51,24 @@ import com.pixeleye.plantdoctor.viewmodel.SettingsViewModel
 import com.pixeleye.plantdoctor.utils.LocationHelper
 import com.pixeleye.plantdoctor.data.local.AppDatabase
 import com.pixeleye.plantdoctor.data.api.PlantScanRepository
+import com.pixeleye.plantdoctor.data.api.BillingManager
 import com.pixeleye.plantdoctor.data.api.SupabaseClientProvider
+import com.pixeleye.plantdoctor.data.api.UserQuotaRepository
+import com.pixeleye.plantdoctor.viewmodel.PremiumViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.google.android.gms.ads.MobileAds
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        MobileAds.initialize(this) {}
+
+        // Initialize RevenueCat
+        val billingManager = BillingManager()
+        billingManager.initialize(this, BuildConfig.REVENUECAT_API_KEY)
 
         val userPreferencesRepository = UserPreferencesRepository(applicationContext)
 
@@ -68,7 +78,10 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    PlantDoctorApp(userPreferencesRepository = userPreferencesRepository)
+                    PlantDoctorApp(
+                    userPreferencesRepository = userPreferencesRepository,
+                    billingManager = billingManager
+                )
                 }
             }
         }
@@ -77,8 +90,14 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun PlantDoctorApp(
-    authViewModel: AuthViewModel = viewModel(),
-    userPreferencesRepository: UserPreferencesRepository
+    billingManager: BillingManager,
+    userPreferencesRepository: UserPreferencesRepository,
+    authViewModel: AuthViewModel = viewModel(
+        factory = AuthViewModel.Factory(
+            LocalContext.current.applicationContext as android.app.Application,
+            billingManager
+        )
+    )
 ) {
     val authState by authViewModel.authState.collectAsStateWithLifecycle()
 
@@ -94,6 +113,7 @@ fun PlantDoctorApp(
                 authViewModel = authViewModel,
                 authState = authState,
                 userPreferencesRepository = userPreferencesRepository,
+                billingManager = billingManager,
                 onSignOut = { authViewModel.signOut() }
             )
         }
@@ -119,6 +139,7 @@ fun PlantDoctorNavHost(
     authViewModel: AuthViewModel,
     authState: AuthState,
     userPreferencesRepository: UserPreferencesRepository,
+    billingManager: BillingManager,
     onSignOut: () -> Unit = {}
 ) {
     val navController = rememberNavController()
@@ -133,16 +154,21 @@ fun PlantDoctorNavHost(
         )
     }
     val repository = remember { PlantScanRepository(supabaseClient, database.historyDao()) }
+    val userQuotaRepository = remember { UserQuotaRepository(supabaseClient) }
 
     val diagnosisViewModel: PlantDiagnosisViewModel = viewModel(
-        factory = PlantDiagnosisViewModel.Factory(userPreferencesRepository, repository)
+        factory = PlantDiagnosisViewModel.Factory(userPreferencesRepository, repository, userQuotaRepository)
     )
     val homeViewModel: HomeViewModel = viewModel(
         factory = HomeViewModel.Factory(repository)
     )
+    val premiumViewModel: PremiumViewModel = viewModel(
+        factory = PremiumViewModel.Factory(billingManager, userQuotaRepository)
+    )
 
     val homeUiState by homeViewModel.uiState.collectAsStateWithLifecycle()
     val diagnosisState by diagnosisViewModel.diagnosisState.collectAsStateWithLifecycle()
+    val isPremium by premiumViewModel.isPremium.collectAsStateWithLifecycle()
     val prefs by userPreferencesRepository.userPreferences.collectAsStateWithLifecycle(initialValue = com.pixeleye.plantdoctor.data.UserPreferences())
 
     NavHost(
@@ -214,6 +240,7 @@ fun PlantDoctorNavHost(
             HomeScreen(
                 uiState = homeUiState,
                 selectedAiLanguage = prefs.selectedAiLanguage,
+                isPremium = isPremium,
                 onScanPlantClick = {
                     navController.navigate("camera")
                 },
@@ -234,6 +261,9 @@ fun PlantDoctorNavHost(
                 onOpenSettings = {
                     navController.navigate("settings")
                 },
+                onOpenPaywall = {
+                    navController.navigate("paywall")
+                },
                 onResume = {
                     homeViewModel.fetchHistory()
                 }
@@ -242,11 +272,13 @@ fun PlantDoctorNavHost(
 
         composable("camera") {
             CameraScreen(
+                diagnosisViewModel = diagnosisViewModel,
+                isPremium = isPremium,
                 onImageCaptured = { uri ->
                     Log.d("PlantDoctor", "Image captured: $uri")
                     diagnosisViewModel.resetState()
                     val encodedUri = Uri.encode(uri.toString())
-                    navController.navigate("result?imageUri=$encodedUri") {
+                    navController.navigate("result?imageUri=$encodedUri&showAd=true") {
                         popUpTo("camera") { inclusive = true }
                     }
                 },
@@ -270,16 +302,21 @@ fun PlantDoctorNavHost(
 
         // Fresh capture result (image from camera → Gemini analysis)
         composable(
-            route = "result?imageUri={imageUri}",
+            route = "result?imageUri={imageUri}&showAd={showAd}",
             arguments = listOf(
                 navArgument("imageUri") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
+                },
+                navArgument("showAd") {
+                    type = NavType.BoolType
+                    defaultValue = false
                 }
             )
         ) { backStackEntry ->
             val imageUriString = backStackEntry.arguments?.getString("imageUri")
+            val showAd = backStackEntry.arguments?.getBoolean("showAd") ?: false
             val imageUri = imageUriString?.let {
                 try { Uri.parse(it) } catch (e: Exception) {
                     Log.e("PlantDoctor", "Failed to parse URI: $it", e)
@@ -322,6 +359,8 @@ fun PlantDoctorNavHost(
                 diagnosisTitle = "Plant Analysis",
                 diagnosisData = diagnosisData,
                 isLoading = isLoading,
+                showAd = showAd,
+                isPremium = isPremium,
                 onBack = {
                     diagnosisViewModel.resetState()
                     homeViewModel.fetchHistory()
@@ -372,6 +411,7 @@ fun PlantDoctorNavHost(
                 diagnosisTitle = title,
                 diagnosisData = diagnosisData,
                 isLoading = false,
+                isPremium = isPremium,
                 onBack = {
                     try {
                         navController.popBackStack()
@@ -404,13 +444,103 @@ fun PlantDoctorNavHost(
                 onSave = { country, language, aiLanguage ->
                     settingsViewModel.savePreferences(country, language, aiLanguage)
                 },
-                onLogout = onSignOut,
+                onLogout = {
+                    premiumViewModel.setPremium(false)
+                    scope.launch {
+                        authViewModel.signOut().await()
+                        navController.navigate("login") {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
+                },
                 onBack = {
                     try {
                         navController.popBackStack()
                     } catch (e: Exception) {
                         Log.e("PlantDoctor", "Navigation error on back: ${e.message}")
                     }
+                }
+            )
+        }
+
+        composable("paywall") {
+            val isProcessing by premiumViewModel.isLoading.collectAsStateWithLifecycle()
+
+            PaywallScreen(
+                isProcessing = isProcessing,
+                onClose = {
+                    try {
+                        navController.popBackStack()
+                    } catch (e: Exception) {
+                        Log.e("PlantDoctor", "Navigation error on paywall close: ${e.message}")
+                    }
+                },
+                onSubscribe = { plan ->
+                    premiumViewModel.startPurchase(
+                        activity = context as ComponentActivity,
+                        billingManager = billingManager,
+                        planId = plan,
+                        onSuccess = {
+                            premiumViewModel.upgradeToPremium()
+                            android.widget.Toast.makeText(
+                                context,
+                                "Welcome to PRO!",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                            try {
+                                navController.popBackStack()
+                            } catch (e: Exception) {
+                                Log.e("PlantDoctor", "Navigation error after purchase: ${e.message}")
+                            }
+                        },
+                        onError = { message ->
+                            Log.e("PlantDoctor", "Purchase error: $message")
+                            android.widget.Toast.makeText(
+                                context,
+                                message,
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    )
+                },
+                onRestorePurchases = {
+                    try {
+                        premiumViewModel.restorePurchases(
+                            billingManager = billingManager,
+                            onSuccess = {
+                                premiumViewModel.upgradeToPremium()
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Purchases restored! Welcome back to PRO!",
+                                    android.widget.Toast.LENGTH_LONG
+                                ).show()
+                                try {
+                                    navController.popBackStack()
+                                } catch (e: Exception) {
+                                    Log.e("PlantDoctor", "Navigation error after restore: ${e.message}")
+                                }
+                            },
+                            onError = { message ->
+                                Log.e("PlantDoctor", "Restore error: $message")
+                                android.widget.Toast.makeText(
+                                    context,
+                                    message,
+                                    android.widget.Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        )
+                    } catch (e: Exception) {
+                        Log.e("PlantDoctor", "Restore exception: ${e.message}", e)
+                        android.widget.Toast.makeText(
+                            context,
+                            "Failed to restore purchases. Please try again.",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                },
+                onTermsClick = {
+                    Log.d("PlantDoctor", "Terms tapped")
+                    // TODO: open terms URL
                 }
             )
         }
