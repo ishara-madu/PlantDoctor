@@ -552,17 +552,25 @@ fun PlantDoctorNavHost(
                     try {
                         premiumViewModel.restorePurchases(
                             billingManager = billingManager,
-                            onSuccess = {
-                                premiumViewModel.upgradeToPremium()
-                                android.widget.Toast.makeText(
-                                    context,
-                                    "Purchases restored! Welcome back to PRO!",
-                                    android.widget.Toast.LENGTH_LONG
-                                ).show()
-                                try {
-                                    navController.popBackStack()
-                                } catch (e: Exception) {
-                                    Log.e("PlantDoctor", "Navigation error after restore: ${e.message}")
+                            onSuccess = { isPro ->
+                                if (isPro) {
+                                    premiumViewModel.upgradeToPremium()
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Purchases restored! Welcome back to PRO!",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                    try {
+                                        navController.popBackStack()
+                                    } catch (e: Exception) {
+                                        Log.e("PlantDoctor", "Navigation error after restore: ${e.message}")
+                                    }
+                                } else {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "No active PRO subscription found.",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
                                 }
                             },
                             onError = { message ->

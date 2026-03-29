@@ -198,15 +198,18 @@ class PremiumViewModel(
 
     fun restorePurchases(
         billingManager: BillingManager,
-        onSuccess: () -> Unit,
+        onSuccess: (Boolean) -> Unit,
         onError: (String) -> Unit
     ) {
         _isLoading.value = true
         billingManager.restorePurchases(
             onSuccess = { customerInfo ->
                 _isLoading.value = false
-                _isPremium.value = billingManager.isProActive(customerInfo)
-                onSuccess()
+                val isPro = billingManager.isProActive(customerInfo)
+                if (isPro) {
+                    _isPremium.value = true
+                }
+                onSuccess(isPro)
             },
             onError = { error ->
                 _isLoading.value = false
