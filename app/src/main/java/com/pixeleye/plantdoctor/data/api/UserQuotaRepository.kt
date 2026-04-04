@@ -18,12 +18,12 @@ class UserQuotaRepository(
     }
 
     /**
-     * Checks the current user's quota in the user_quotas table.
+     * Checks/fetches the current user's quota in the user_quotas table.
      * - If no row exists, creates one with daily_count = 0.
      * - If last_scan_date is not today, resets daily_count to 0 and updates the date.
-     * - Returns the current daily_count after any necessary resets.
+     * - Returns the full UserQuotaDto after any necessary resets.
      */
-    suspend fun checkQuota(): Int {
+    suspend fun checkQuota(): UserQuotaDto {
         val currentUserId = supabaseClient.auth.currentUserOrNull()?.id
             ?: throw Exception("User is not logged in. Cannot check quota.")
 
@@ -42,21 +42,21 @@ class UserQuotaRepository(
             if (existingRows.isEmpty()) {
                 // No row exists — create one
                 Log.d(TAG, "No quota row found. Creating new row for user.")
-                supabaseClient.from(TABLE_NAME).insert(
-                    UserQuotaDto(
-                        userId = currentUserId,
-                        dailyCount = 0,
-                        lastScanDate = today
-                    )
+                val newQuota = UserQuotaDto(
+                    userId = currentUserId,
+                    dailyCount = 0,
+                    lastScanDate = today
                 )
-                return 0
+                supabaseClient.from(TABLE_NAME).insert(newQuota)
+                return newQuota
             }
 
             val quota = existingRows.first()
 
             if (quota.lastScanDate != today) {
-                // Date has changed — reset count
+                // Date has changed — reset count locally and in DB
                 Log.d(TAG, "Date changed (${quota.lastScanDate} -> $today). Resetting daily count.")
+                val resetQuota = quota.copy(dailyCount = 0, lastScanDate = today)
                 supabaseClient.from(TABLE_NAME).update(
                     {
                         set("daily_count", 0)
@@ -67,11 +67,11 @@ class UserQuotaRepository(
                         eq("user_id", currentUserId)
                     }
                 }
-                return 0
+                return resetQuota
             }
 
             Log.d(TAG, "Current daily count: ${quota.dailyCount}")
-            return quota.dailyCount
+            return quota
 
         } catch (e: Exception) {
             Log.e(TAG, "Failed to check quota", e)

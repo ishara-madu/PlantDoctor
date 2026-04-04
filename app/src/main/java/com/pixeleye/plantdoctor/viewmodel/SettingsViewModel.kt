@@ -21,6 +21,9 @@ class SettingsViewModel(
     private val _isSaving = MutableStateFlow(false)
     val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
 
+    private val _snackbarEvent = MutableStateFlow<com.pixeleye.plantdoctor.ui.components.SnackbarState?>(null)
+    val snackbarEvent: StateFlow<com.pixeleye.plantdoctor.ui.components.SnackbarState?> = _snackbarEvent.asStateFlow()
+
     init {
         viewModelScope.launch {
             repository.userPreferences.collect { prefs ->
@@ -39,7 +42,16 @@ class SettingsViewModel(
                 onboardingCompleted = true
             )
             _isSaving.value = false
+            showSnackbar("Preferences saved successfully", com.pixeleye.plantdoctor.ui.components.SnackbarType.SUCCESS)
         }
+    }
+
+    fun consumeSnackbarEvent() {
+        _snackbarEvent.value = null
+    }
+
+    fun showSnackbar(message: String, type: com.pixeleye.plantdoctor.ui.components.SnackbarType) {
+        _snackbarEvent.value = com.pixeleye.plantdoctor.ui.components.SnackbarState(message, type)
     }
 
     class Factory(

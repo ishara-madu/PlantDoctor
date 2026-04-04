@@ -66,7 +66,12 @@ fun decodeDownscaledBitmap(context: Context, uri: Uri): Bitmap {
 fun compressImageHighQuality(context: Context, uri: Uri): ByteArray {
     val bitmap = decodeDownscaledBitmap(context, uri)
     val stream = ByteArrayOutputStream()
-    bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, stream)
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, JPEG_QUALITY, stream)
+    } else {
+        @Suppress("DEPRECATION")
+        bitmap.compress(Bitmap.CompressFormat.WEBP, JPEG_QUALITY, stream)
+    }
     bitmap.recycle()
     return stream.toByteArray()
 }

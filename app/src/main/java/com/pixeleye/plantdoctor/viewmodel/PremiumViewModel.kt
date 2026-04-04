@@ -40,6 +40,9 @@ class PremiumViewModel(
     private val _yearlyPackage = MutableStateFlow<Package?>(null)
     val yearlyPackage: StateFlow<Package?> = _yearlyPackage.asStateFlow()
 
+    private val _snackbarEvent = MutableStateFlow<com.pixeleye.plantdoctor.ui.components.SnackbarState?>(null)
+    val snackbarEvent: StateFlow<com.pixeleye.plantdoctor.ui.components.SnackbarState?> = _snackbarEvent.asStateFlow()
+
     private var cachedPackages: Map<String, Package>? = null
 
     init {
@@ -178,6 +181,14 @@ class PremiumViewModel(
 
     fun setPremium(isPremium: Boolean) {
         _isPremium.value = isPremium
+    }
+
+    fun consumeSnackbarEvent() {
+        _snackbarEvent.value = null
+    }
+
+    fun showSnackbar(message: String, type: com.pixeleye.plantdoctor.ui.components.SnackbarType) {
+        _snackbarEvent.value = com.pixeleye.plantdoctor.ui.components.SnackbarState(message, type)
     }
 
     class Factory(

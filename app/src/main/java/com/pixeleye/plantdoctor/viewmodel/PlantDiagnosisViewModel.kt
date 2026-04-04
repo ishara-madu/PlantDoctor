@@ -19,6 +19,7 @@ import com.pixeleye.plantdoctor.data.api.PlantScanDto
 import com.pixeleye.plantdoctor.data.api.SupabaseClientProvider
 import com.pixeleye.plantdoctor.data.api.PlantScanRepository
 import com.pixeleye.plantdoctor.data.api.UserQuotaRepository
+import com.pixeleye.plantdoctor.data.api.UserQuotaDto
 import com.pixeleye.plantdoctor.utils.compressImageHighQuality
 import com.pixeleye.plantdoctor.utils.decodeDownscaledBitmap
 import io.github.jan.supabase.gotrue.auth
@@ -123,11 +124,14 @@ Rules:
     private val _scanCount = MutableStateFlow(0)
     val scanCount: StateFlow<Int> = _scanCount.asStateFlow()
 
-    suspend fun checkQuota(): Int {
+    private val _snackbarEvent = MutableStateFlow<com.pixeleye.plantdoctor.ui.components.SnackbarState?>(null)
+    val snackbarEvent: StateFlow<com.pixeleye.plantdoctor.ui.components.SnackbarState?> = _snackbarEvent.asStateFlow()
+
+    suspend fun checkQuota(): UserQuotaDto {
         return try {
-            val count = userQuotaRepository.checkQuota()
-            _scanCount.value = count
-            count
+            val quota = userQuotaRepository.checkQuota()
+            _scanCount.value = quota.dailyCount
+            quota
         } catch (e: Exception) {
             Log.e(TAG, "Failed to check quota", e)
             throw e
@@ -143,12 +147,35 @@ Rules:
         }
     }
 
-    fun analyzePlant(image: Bitmap, userNotes: String = "", imageUri: Uri? = null, locationStr: String? = null, context: Context? = null) {
+    fun analyzePlant(image: Bitmap, userNotes: String = "", imageUri: Uri? = null, locationStr: String? = null, context: Context? = null, isPremium: Boolean = false) {
         viewModelScope.launch {
             _diagnosisState.value = DiagnosisState.Loading
             _uploadState.value = UploadState.Idle
 
             try {
+                // 1. UNIVERSAL QUOTA CHECK (Fair Use Policy: 3 for Free, 50 for Pro)
+                val currentQuota = try {
+                    checkQuota()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Quota check failed", e)
+                    // If DB is down, we allow it for Free users but log it as a risk.
+                    // For now, we'll be strict to protect the API costs.
+                    null
+                }
+
+                if (currentQuota != null) {
+                    val maxLimit = if (isPremium) 50 else 3
+                    if (currentQuota.dailyCount >= maxLimit) {
+                        val limitMsg = if (isPremium) {
+                            "Daily fair-use limit of 50 scans reached for PRO users."
+                        } else {
+                            "Daily limit of 3 scans reached. Upgrade to PRO for 50 scans/day!"
+                        }
+                        _diagnosisState.value = DiagnosisState.Error(limitMsg)
+                        return@launch
+                    }
+                }
+
                 // Downscale image for Gemini if context+uri available (saves bandwidth, faster AI response)
                 val inputImage = if (context != null && imageUri != null) {
                     withContext(Dispatchers.IO) {
@@ -193,14 +220,8 @@ Rules:
                     text(fullPrompt)
                 }
 
-                val response = try {
-                    withTimeout(20_000L) {
-                        generativeModel.generateContent(inputContent)
-                    }
-                } catch (e: TimeoutCancellationException) {
-                    throw IOException("Connection is too slow. Please check your internet and try again.")
-                } catch (e: IOException) {
-                    throw IOException("Network error during AI analysis. Please check your internet and try again.")
+                val response = withTimeout(20_000L) {
+                    generativeModel.generateContent(inputContent)
                 }
 
                 val resultText = response.text
@@ -255,6 +276,9 @@ Rules:
                     }
                 }.trim()
 
+                // ── SUCCESS! Universal Increment ────────────
+                incrementQuota()
+
                 // Upload to Supabase in background (only for confirmed plants)
                 uploadToSupabase(
                     context = context,
@@ -266,9 +290,12 @@ Rules:
 
             } catch (e: Exception) {
                 Log.e(TAG, "Gemini analysis failed", e)
-                _diagnosisState.value = DiagnosisState.Error(
-                    e.message ?: "An unknown error occurred during analysis."
-                )
+                val errorMessage = when (e) {
+                    is java.net.UnknownHostException, is IOException -> "No internet connection. Please check your network."
+                    is java.net.SocketTimeoutException, is kotlinx.coroutines.TimeoutCancellationException -> "The server took too long to respond. Please try again."
+                    else -> "API Error: ${e.message ?: "An unknown error occurred during analysis."}"
+                }
+                _diagnosisState.value = DiagnosisState.Error(errorMessage)
             }
         }
     }
@@ -296,7 +323,7 @@ Rules:
                         }
                     }
 
-                    val fileName = "${UUID.randomUUID()}.jpg"
+                    val fileName = "${UUID.randomUUID()}.webp"
                     val bucket = supabaseClient.storage.from(STORAGE_BUCKET)
                     bucket.upload(path = fileName, data = imageBytes, upsert = false)
                     Log.d(TAG, "Image uploaded to storage: $fileName")
@@ -343,6 +370,14 @@ Rules:
     fun resetState() {
         _diagnosisState.value = DiagnosisState.Idle
         _uploadState.value = UploadState.Idle
+    }
+
+    fun consumeSnackbarEvent() {
+        _snackbarEvent.value = null
+    }
+
+    fun showSnackbar(message: String, type: com.pixeleye.plantdoctor.ui.components.SnackbarType) {
+        _snackbarEvent.value = com.pixeleye.plantdoctor.ui.components.SnackbarState(message, type)
     }
 
     class Factory(

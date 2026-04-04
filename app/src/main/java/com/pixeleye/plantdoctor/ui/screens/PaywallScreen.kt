@@ -77,6 +77,7 @@ fun PaywallScreen(
     monthlyPackage: Package? = null,
     yearlyPackage: Package? = null,
     isProcessing: Boolean = false,
+    onTriggerSnackbar: (String, com.pixeleye.plantdoctor.ui.components.SnackbarType) -> Unit = { _, _ -> },
     onClose: () -> Unit = {},
     onSubscribe: (plan: String) -> Unit = {},
     onRestorePurchases: () -> Unit = {},
@@ -336,6 +337,8 @@ fun PaywallScreen(
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
+
+                Spacer(modifier = Modifier.height(40.dp))
             }
         }
     }

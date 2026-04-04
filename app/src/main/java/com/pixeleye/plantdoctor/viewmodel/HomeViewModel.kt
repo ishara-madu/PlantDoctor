@@ -54,8 +54,8 @@ class HomeViewModel(
     val lastDeletedScan: StateFlow<PlantScanDto?> = _lastDeletedScan.asStateFlow()
 
     // One-time event for showing snackbar messages (e.g., slow connection)
-    private val _snackbarEvent = MutableStateFlow<String?>(null)
-    val snackbarEvent: StateFlow<String?> = _snackbarEvent.asStateFlow()
+    private val _snackbarEvent = MutableStateFlow<com.pixeleye.plantdoctor.ui.components.SnackbarState?>(null)
+    val snackbarEvent: StateFlow<com.pixeleye.plantdoctor.ui.components.SnackbarState?> = _snackbarEvent.asStateFlow()
 
     // ── Showcase walkthrough state ─────────────────────────────
     private val _hasSeenCameraShowcase = MutableStateFlow(false)
@@ -83,11 +83,17 @@ class HomeViewModel(
                 }
                 if (result == null) {
                     Log.w(TAG, "History fetch timed out after 10 seconds")
-                    _snackbarEvent.value = "Connection is slow. Could not load recent scans."
+                    _snackbarEvent.value = com.pixeleye.plantdoctor.ui.components.SnackbarState(
+                        message = "Connection is slow. Could not load recent scans.",
+                        type = com.pixeleye.plantdoctor.ui.components.SnackbarType.ERROR
+                    )
                 }
             } catch (e: IOException) {
                 Log.e(TAG, "Network error fetching history", e)
-                _snackbarEvent.value = "Connection is slow. Could not load recent scans."
+                _snackbarEvent.value = com.pixeleye.plantdoctor.ui.components.SnackbarState(
+                    message = "Connection is slow. Could not load recent scans.",
+                    type = com.pixeleye.plantdoctor.ui.components.SnackbarType.ERROR
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to refresh history from remote", e)
             }
@@ -128,10 +134,12 @@ class HomeViewModel(
             try {
                 repository.deleteScan(scan)
                 Log.d(TAG, "Scan deleted successfully: ${scan.id}")
+                showSnackbar("Scan deleted successfully", com.pixeleye.plantdoctor.ui.components.SnackbarType.SUCCESS)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete scan, refreshing list", e)
                 // Re-fetch to restore the item if server deletion failed
                 fetchHistory()
+                showSnackbar("Failed to delete scan. Re-syncing history...", com.pixeleye.plantdoctor.ui.components.SnackbarType.ERROR)
             }
         }
     }
@@ -147,17 +155,26 @@ class HomeViewModel(
         val scansToDelete = currentState.scans.filter { it.id in scanIds }
         
         viewModelScope.launch {
+            var deletedCount = 0
             scansToDelete.forEach { scan ->
                 try {
                     repository.deleteScan(scan)
                     Log.d(TAG, "Scan deleted successfully: ${scan.id}")
+                    deletedCount++
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to delete scan: ${scan.id}", e)
                 }
             }
+            if (deletedCount > 0) {
+              showSnackbar("$deletedCount scan(s) deleted", com.pixeleye.plantdoctor.ui.components.SnackbarType.SUCCESS)
+            }
             // Refresh to restore any items that failed to delete
             fetchHistory()
         }
+    }
+
+    fun showSnackbar(message: String, type: com.pixeleye.plantdoctor.ui.components.SnackbarType) {
+        _snackbarEvent.value = com.pixeleye.plantdoctor.ui.components.SnackbarState(message, type)
     }
 
     class Factory(

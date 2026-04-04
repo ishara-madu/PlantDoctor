@@ -43,6 +43,9 @@ class AuthViewModel(
     private val _authState = MutableStateFlow<AuthState>(AuthState.Loading)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
+    private val _snackbarEvent = MutableStateFlow<com.pixeleye.plantdoctor.ui.components.SnackbarState?>(null)
+    val snackbarEvent: StateFlow<com.pixeleye.plantdoctor.ui.components.SnackbarState?> = _snackbarEvent.asStateFlow()
+
     init {
         checkSession()
     }
@@ -79,6 +82,7 @@ class AuthViewModel(
                 },
                 onFailure = { e ->
                     Log.e(TAG, "Sign-in failed", e)
+                    showSnackbar(e.message ?: "Sign-in failed. Please try again.", com.pixeleye.plantdoctor.ui.components.SnackbarType.ERROR)
                     _authState.value = AuthState.Error(
                         e.message ?: "Sign-in failed. Please try again."
                     )
@@ -97,6 +101,14 @@ class AuthViewModel(
 
     fun clearError() {
         _authState.value = AuthState.Unauthenticated
+    }
+
+    fun consumeSnackbarEvent() {
+        _snackbarEvent.value = null
+    }
+
+    fun showSnackbar(message: String, type: com.pixeleye.plantdoctor.ui.components.SnackbarType) {
+        _snackbarEvent.value = com.pixeleye.plantdoctor.ui.components.SnackbarState(message, type)
     }
 
     class Factory(

@@ -110,11 +110,38 @@ fun PlantDoctorApp(
 ) {
     val isOnline by rememberNetworkState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // ── Data Layer initialization (moved up for global VM access) ──
+    val database = remember { AppDatabase.getDatabase(context) }
+    val supabaseClient = remember {
+        SupabaseClientProvider.getClient(
+            supabaseUrl = BuildConfig.SUPABASE_URL,
+            supabaseKey = BuildConfig.SUPABASE_ANON_KEY
+        )
+    }
+    val repository = remember { PlantScanRepository(supabaseClient, database.historyDao()) }
+    val userQuotaRepository = remember { UserQuotaRepository(supabaseClient) }
+
+    // ── Shared ViewModels ──────────────────────────────────
+    val premiumViewModel: PremiumViewModel = viewModel(
+        factory = PremiumViewModel.Factory(billingManager)
+    )
+    val diagnosisViewModel: PlantDiagnosisViewModel = viewModel(
+        factory = PlantDiagnosisViewModel.Factory(userPreferencesRepository, repository, userQuotaRepository)
+    )
+    val homeViewModel: HomeViewModel = viewModel(
+        factory = HomeViewModel.Factory(repository, userPreferencesRepository)
+    )
+    val settingsViewModel: SettingsViewModel = viewModel(
+        factory = SettingsViewModel.Factory(userPreferencesRepository)
+    )
 
     LaunchedEffect(isOnline) {
         if (!isOnline) {
             snackbarHostState.showSnackbar(
-                message = "No internet connection",
+                message = "INFO|No internet connection",
                 duration = SnackbarDuration.Indefinite
             )
         } else {
@@ -123,10 +150,6 @@ fun PlantDoctorApp(
     }
 
     // ── Global Premium State Management ────────────────────
-    val premiumViewModel: PremiumViewModel = viewModel(
-        factory = PremiumViewModel.Factory(billingManager)
-    )
-
     // Listen for real-time premium status updates from RevenueCat
     LaunchedEffect(Unit) {
         billingManager.setUpdatedCustomerInfoListener { customerInfo ->
@@ -137,16 +160,73 @@ fun PlantDoctorApp(
     }
 
     val authState by authViewModel.authState.collectAsStateWithLifecycle()
+    val premiumSnackbar by premiumViewModel.snackbarEvent.collectAsStateWithLifecycle()
+    val diagnosisSnackbar by diagnosisViewModel.snackbarEvent.collectAsStateWithLifecycle()
+    val homeSnackbar by homeViewModel.snackbarEvent.collectAsStateWithLifecycle()
+    val settingsSnackbar by settingsViewModel.snackbarEvent.collectAsStateWithLifecycle()
+
+    // ── Global Snackbar Management ─────────────────────────
+    LaunchedEffect(premiumSnackbar) {
+        premiumSnackbar?.let {
+            snackbarHostState.showSnackbar("${it.type.name}|${it.message}")
+            premiumViewModel.consumeSnackbarEvent()
+        }
+    }
+
+    LaunchedEffect(diagnosisSnackbar) {
+        diagnosisSnackbar?.let {
+            snackbarHostState.showSnackbar("${it.type.name}|${it.message}")
+            diagnosisViewModel.consumeSnackbarEvent()
+        }
+    }
+
+    LaunchedEffect(homeSnackbar) {
+        homeSnackbar?.let {
+            snackbarHostState.showSnackbar("${it.type.name}|${it.message}")
+            homeViewModel.consumeSnackbarEvent()
+        }
+    }
+
+    LaunchedEffect(settingsSnackbar) {
+        settingsSnackbar?.let {
+            snackbarHostState.showSnackbar("${it.type.name}|${it.message}")
+            settingsViewModel.consumeSnackbarEvent()
+        }
+    }
+
+    // ── Settings ViewModel logic (inside NavHost requires local viewmodel call or global collector) ──
+    // Since SettingsViewModel is created inside NavHost, we'll collect its events here if we have a reference.
+    // However, it's easier to collect the auth snackbars here too.
+    val authSnackbar by authViewModel.snackbarEvent.collectAsStateWithLifecycle()
+    LaunchedEffect(authSnackbar) {
+        authSnackbar?.let {
+            snackbarHostState.showSnackbar("${it.type.name}|${it.message}")
+            authViewModel.consumeSnackbarEvent()
+        }
+    }
 
     Scaffold(
         snackbarHost = {
             SnackbarHost(hostState = snackbarHostState) { data ->
-                Snackbar(
-                    snackbarData = data,
-                    shape = RoundedCornerShape(12.dp),
-                    containerColor = MaterialTheme.colorScheme.inverseSurface,
-                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                    actionColor = MaterialTheme.colorScheme.tertiary
+                val parts = data.visuals.message.split("|", limit = 2)
+                val type = if (parts.size == 2) {
+                    try {
+                        com.pixeleye.plantdoctor.ui.components.SnackbarType.valueOf(parts[0])
+                    } catch (e: Exception) {
+                        com.pixeleye.plantdoctor.ui.components.SnackbarType.INFO
+                    }
+                } else {
+                    com.pixeleye.plantdoctor.ui.components.SnackbarType.INFO
+                }
+                val rawMessage = if (parts.size == 2) parts[1] else data.visuals.message
+
+                com.pixeleye.plantdoctor.ui.components.CustomSnackbar(
+                    snackbarData = object : androidx.compose.material3.SnackbarData by data {
+                        override val visuals: androidx.compose.material3.SnackbarVisuals = object : androidx.compose.material3.SnackbarVisuals by data.visuals {
+                            override val message: String = rawMessage
+                        }
+                    },
+                    type = type
                 )
             }
         }
@@ -161,10 +241,14 @@ fun PlantDoctorApp(
             is AuthState.Error -> {
                 PlantDoctorNavHost(
                     authViewModel = authViewModel,
+                    homeViewModel = homeViewModel,
+                    diagnosisViewModel = diagnosisViewModel,
                     authState = authState,
                     userPreferencesRepository = userPreferencesRepository,
                     billingManager = billingManager,
                     premiumViewModel = premiumViewModel,
+                    settingsViewModel = settingsViewModel,
+                    database = database,
                     onSignOut = { authViewModel.signOut() }
                 )
             }
@@ -189,32 +273,19 @@ private fun LoadingSplash() {
 @Composable
 fun PlantDoctorNavHost(
     authViewModel: AuthViewModel,
+    homeViewModel: HomeViewModel,
+    diagnosisViewModel: PlantDiagnosisViewModel,
     authState: AuthState,
     userPreferencesRepository: UserPreferencesRepository,
     billingManager: BillingManager,
     premiumViewModel: PremiumViewModel,
+    settingsViewModel: SettingsViewModel,
+    database: com.pixeleye.plantdoctor.data.local.AppDatabase,
     onSignOut: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-
-    val database = remember { AppDatabase.getDatabase(context) }
-    val supabaseClient = remember {
-        SupabaseClientProvider.getClient(
-            supabaseUrl = BuildConfig.SUPABASE_URL,
-            supabaseKey = BuildConfig.SUPABASE_ANON_KEY
-        )
-    }
-    val repository = remember { PlantScanRepository(supabaseClient, database.historyDao()) }
-    val userQuotaRepository = remember { UserQuotaRepository(supabaseClient) }
-
-    val diagnosisViewModel: PlantDiagnosisViewModel = viewModel(
-        factory = PlantDiagnosisViewModel.Factory(userPreferencesRepository, repository, userQuotaRepository)
-    )
-    val homeViewModel: HomeViewModel = viewModel(
-        factory = HomeViewModel.Factory(repository, userPreferencesRepository)
-    )
 
     val homeUiState by homeViewModel.uiState.collectAsStateWithLifecycle()
     val diagnosisState by diagnosisViewModel.diagnosisState.collectAsStateWithLifecycle()
@@ -291,14 +362,13 @@ fun PlantDoctorNavHost(
         }
 
         composable("home") {
-            val snackbarMessage by homeViewModel.snackbarEvent.collectAsStateWithLifecycle()
-
             HomeScreen(
                 uiState = homeUiState,
                 selectedAiLanguage = prefs.selectedAiLanguage,
                 isPremium = isPremium,
-                snackbarMessage = snackbarMessage,
-                onSnackbarShown = { homeViewModel.consumeSnackbarEvent() },
+                onTriggerSnackbar = { msg, type ->
+                    homeViewModel.showSnackbar(msg, type)
+                },
                 onScanPlantClick = {
                     navController.navigate("camera")
                 },
@@ -418,7 +488,7 @@ fun PlantDoctorNavHost(
                         if (bitmap != null) {
                             Log.d("PlantDoctor", "Bitmap decoded: ${bitmap.width}x${bitmap.height}")
                             val locationStr = LocationHelper.getRobustLocationString(context)
-                            diagnosisViewModel.analyzePlant(bitmap, imageUri = imageUri, locationStr = locationStr, context = context)
+                            diagnosisViewModel.analyzePlant(bitmap, imageUri = imageUri, locationStr = locationStr, context = context, isPremium = premiumViewModel.isPremium.value)
                         } else {
                             Log.e("PlantDoctor", "Failed to decode bitmap from URI: $imageUri")
                         }
@@ -546,9 +616,6 @@ fun PlantDoctorNavHost(
         }
 
         composable("settings") {
-            val settingsViewModel: SettingsViewModel = viewModel(
-                factory = SettingsViewModel.Factory(userPreferencesRepository)
-            )
             val currentPrefs by settingsViewModel.currentPrefs.collectAsStateWithLifecycle()
             val isSaving by settingsViewModel.isSaving.collectAsStateWithLifecycle()
 
@@ -594,6 +661,9 @@ fun PlantDoctorNavHost(
                 monthlyPackage = monthlyPackage,
                 yearlyPackage = yearlyPackage,
                 isProcessing = isProcessing,
+                onTriggerSnackbar = { message, type ->
+                    premiumViewModel.showSnackbar(message, type)
+                },
                 onClose = {
                     try {
                         if (NavigationDebouncer.canNavigate()) {
@@ -610,11 +680,7 @@ fun PlantDoctorNavHost(
                         planId = plan,
                         onSuccess = {
                             premiumViewModel.upgradeToPremium()
-                            android.widget.Toast.makeText(
-                                context,
-                                "Welcome to PRO!",
-                                android.widget.Toast.LENGTH_LONG
-                            ).show()
+                            premiumViewModel.showSnackbar("Welcome to PRO!", com.pixeleye.plantdoctor.ui.components.SnackbarType.SUCCESS)
                             try {
                                 if (NavigationDebouncer.canNavigate()) {
                                     navController.popBackStack()
@@ -625,11 +691,7 @@ fun PlantDoctorNavHost(
                         },
                         onError = { message ->
                             Log.e("PlantDoctor", "Purchase error: $message")
-                            android.widget.Toast.makeText(
-                                context,
-                                message,
-                                android.widget.Toast.LENGTH_LONG
-                            ).show()
+                            premiumViewModel.showSnackbar(message, com.pixeleye.plantdoctor.ui.components.SnackbarType.ERROR)
                         }
                     )
                 },
@@ -640,11 +702,7 @@ fun PlantDoctorNavHost(
                             onSuccess = { isPro ->
                                 if (isPro) {
                                     premiumViewModel.upgradeToPremium()
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Purchases restored! Welcome back to PRO!",
-                                        android.widget.Toast.LENGTH_LONG
-                                    ).show()
+                                    premiumViewModel.showSnackbar("Purchases restored! Welcome back to PRO!", com.pixeleye.plantdoctor.ui.components.SnackbarType.SUCCESS)
                                     try {
                                         if (NavigationDebouncer.canNavigate()) {
                                             navController.popBackStack()
@@ -653,29 +711,17 @@ fun PlantDoctorNavHost(
                                         Log.e("PlantDoctor", "Navigation error after restore: ${e.message}")
                                     }
                                 } else {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "No active PRO subscription found.",
-                                        android.widget.Toast.LENGTH_LONG
-                                    ).show()
+                                    premiumViewModel.showSnackbar("No active PRO subscription found.", com.pixeleye.plantdoctor.ui.components.SnackbarType.ERROR)
                                 }
                             },
                             onError = { message ->
                                 Log.e("PlantDoctor", "Restore error: $message")
-                                android.widget.Toast.makeText(
-                                    context,
-                                    message,
-                                    android.widget.Toast.LENGTH_LONG
-                                ).show()
+                                premiumViewModel.showSnackbar(message, com.pixeleye.plantdoctor.ui.components.SnackbarType.ERROR)
                             }
                         )
                     } catch (e: Exception) {
                         Log.e("PlantDoctor", "Restore exception: ${e.message}", e)
-                        android.widget.Toast.makeText(
-                            context,
-                            "Failed to restore purchases. Please try again.",
-                            android.widget.Toast.LENGTH_LONG
-                        ).show()
+                        premiumViewModel.showSnackbar("Failed to restore purchases. Please try again.", com.pixeleye.plantdoctor.ui.components.SnackbarType.ERROR)
                     }
                 },
                 onTermsClick = {

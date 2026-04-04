@@ -256,23 +256,22 @@ private fun CameraContent(
                         scope.launch {
                             try {
                                 val currentQuota = diagnosisViewModel.checkQuota()
-                                currentQuotaCount = currentQuota
+                                currentQuotaCount = currentQuota.dailyCount
+                                val maxLimit = if (isPremium) 50 else 3
+
                                 when {
-                                    isPremium -> {
-                                        // Premium users: unlimited, no quota tracking needed
+                                    currentQuotaCount < maxLimit -> {
+                                        // Within limit — proceed with capture/increment will happen in VM
                                         onImageCaptured(capturedUri!!)
                                     }
-                                    currentQuota < 3 -> {
-                                        // Tier 1: Free scans available
-                                        diagnosisViewModel.incrementQuota()
-                                        onImageCaptured(capturedUri!!)
-                                    }
-                                    currentQuota < 6 -> {
-                                        // Tier 2: Free scans exhausted, rewarded ad unlocks available
+                                    !isPremium && currentQuotaCount < 6 -> {
+                                        // Tier 2: Free users can unlock 3 more via ads (Fair Use doesn't apply yet)
+                                        // Wait... the user said 3 is the limit for Free. 
+                                        // If they want to keep the ad unlock, we can keep it up to 6.
                                         showLimitDialog = true
                                     }
                                     else -> {
-                                        // Tier 3: Hard limit reached
+                                        // Hard limit reached (3/6 for Free, 50 for Pro)
                                         showHardLimitDialog = true
                                     }
                                 }

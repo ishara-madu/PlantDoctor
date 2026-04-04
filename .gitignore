@@ -13,7 +13,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+website
 /website
+app/release
 # --- Release & Build Files ---
 *.apk
 *.aab

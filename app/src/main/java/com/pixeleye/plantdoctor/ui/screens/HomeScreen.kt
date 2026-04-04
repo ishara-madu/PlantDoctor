@@ -148,12 +148,6 @@ fun HomeScreen(
     uiState: HomeUiState,
     selectedAiLanguage: String = "English",
     isPremium: Boolean = false,
-    snackbarMessage: String? = null,
-    onSnackbarShown: () -> Unit = {},
-    onScanPlantClick: () -> Unit,
-    onViewResult: (PlantScanDto) -> Unit = {},
-    onDeleteScan: (PlantScanDto) -> Unit = {},
-    onDeleteSelectedScans: (List<String>) -> Unit = {},
     onRetry: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenPaywall: () -> Unit = {},
@@ -162,9 +156,14 @@ fun HomeScreen(
     hasSeenCameraShowcase: Boolean = true,
     hasSeenLongPressShowcase: Boolean = true,
     onCameraShowcaseDismissed: () -> Unit = {},
-    onLongPressShowcaseDismissed: () -> Unit = {}
+    onLongPressShowcaseDismissed: () -> Unit = {},
+    onTriggerSnackbar: (String, com.pixeleye.plantdoctor.ui.components.SnackbarType) -> Unit = { _, _ -> },
+    onScanPlantClick: () -> Unit,
+    onViewResult: (PlantScanDto) -> Unit = {},
+    onDeleteScan: (PlantScanDto) -> Unit = {},
+    onDeleteSelectedScans: (List<String>) -> Unit = {}
 ) {
-    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     // ── Showcase coordinate state ─────────────────────────────
     // Captured once the composable is laid out; null until available.
@@ -174,17 +173,6 @@ fun HomeScreen(
     // Derive which (if any) overlay to show; evaluated on every recomposition.
     val showCameraShowcase    = !hasSeenCameraShowcase && fabRect != null
     val showLongPressShowcase = hasSeenCameraShowcase && !hasSeenLongPressShowcase && firstCardRect != null
-
-    LaunchedEffect(snackbarMessage) {
-        if (snackbarMessage != null) {
-            snackbarHostState.showSnackbar(
-                message = snackbarMessage,
-                duration = SnackbarDuration.Short
-            )
-            onSnackbarShown()
-        }
-    }
-    val scope = rememberCoroutineScope()
 
     // Auto-reload history every time this screen resumes (e.g. navigating back from ResultScreen)
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -204,17 +192,6 @@ fun HomeScreen(
     Box(modifier = Modifier.fillMaxSize()) {
 
     Scaffold(
-        snackbarHost = {
-            SnackbarHost(hostState = snackbarHostState) { data ->
-                Snackbar(
-                    snackbarData = data,
-                    shape = RoundedCornerShape(12.dp),
-                    containerColor = MaterialTheme.colorScheme.inverseSurface,
-                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                    actionColor = MaterialTheme.colorScheme.tertiary
-                )
-            }
-        },
         bottomBar = {
             if (!isPremium) {
                 AdmobBanner()
@@ -282,12 +259,7 @@ fun HomeScreen(
                 val safeAiLanguage = if (selectedAiLanguage.isBlank()) "English" else selectedAiLanguage
 
                 if (!hasLocationPermission) {
-                    scope.launch {
-                        snackbarHostState.showSnackbar(
-                            message = "Location access is required to scan. Please enable it in Settings.",
-                            duration = SnackbarDuration.Short
-                        )
-                    }
+                    onTriggerSnackbar("Location access is required to scan. Please enable it in Settings.", com.pixeleye.plantdoctor.ui.components.SnackbarType.ERROR)
                 } else {
                     onScanPlantClick()
                 }
@@ -323,21 +295,9 @@ fun HomeScreen(
                     onViewResult = onViewResult,
                     onDeleteScan = { scan ->
                         onDeleteScan(scan)
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                message = "Scan deleted",
-                                duration = SnackbarDuration.Short
-                            )
-                        }
                     },
                     onDeleteSelectedScans = { ids ->
                         onDeleteSelectedScans(ids)
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                message = "${ids.size} scan(s) deleted",
-                                duration = SnackbarDuration.Short
-                            )
-                        }
                     },
                     onRefresh = onRetry,
                     onOpenPaywall = onOpenPaywall,

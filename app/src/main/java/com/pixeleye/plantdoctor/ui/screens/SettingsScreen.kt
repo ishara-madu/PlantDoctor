@@ -97,21 +97,9 @@ fun SettingsScreen(
         hasLocationPermission = granted
     }
 
-    val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     Scaffold(
-        snackbarHost = {
-            SnackbarHost(hostState = snackbarHostState) { data ->
-                Snackbar(
-                    snackbarData = data,
-                    shape = RoundedCornerShape(12.dp),
-                    containerColor = MaterialTheme.colorScheme.inverseSurface,
-                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                    actionColor = MaterialTheme.colorScheme.tertiary
-                )
-            }
-        },
         topBar = {
             TopAppBar(
                 title = {
@@ -308,9 +296,6 @@ fun SettingsScreen(
             Button(
                 onClick = {
                     onSave("", "", selectedAiLanguage)
-                    scope.launch {
-                        snackbarHostState.showSnackbar("Preferences saved")
-                    }
                 },
                 enabled = hasChanges && !isSaving,
                 modifier = Modifier
