@@ -585,10 +585,14 @@ fun PlantDoctorNavHost(
             val isProcessing by premiumViewModel.isLoading.collectAsStateWithLifecycle()
             val monthlyPrice by premiumViewModel.monthlyPrice.collectAsStateWithLifecycle()
             val yearlyPrice by premiumViewModel.yearlyPrice.collectAsStateWithLifecycle()
+            val monthlyPackage by premiumViewModel.monthlyPackage.collectAsStateWithLifecycle()
+            val yearlyPackage by premiumViewModel.yearlyPackage.collectAsStateWithLifecycle()
 
             PaywallScreen(
                 monthlyPrice = monthlyPrice,
                 yearlyPrice = yearlyPrice,
+                monthlyPackage = monthlyPackage,
+                yearlyPackage = yearlyPackage,
                 isProcessing = isProcessing,
                 onClose = {
                     try {

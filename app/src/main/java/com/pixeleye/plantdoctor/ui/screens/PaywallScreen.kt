@@ -66,12 +66,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.revenuecat.purchases.Package
+import kotlin.math.roundToInt
 
 // ── Paywall Screen ────────────────────────────────────────────
 @Composable
 fun PaywallScreen(
     monthlyPrice: String = "",
     yearlyPrice: String = "",
+    monthlyPackage: Package? = null,
+    yearlyPackage: Package? = null,
     isProcessing: Boolean = false,
     onClose: () -> Unit = {},
     onSubscribe: (plan: String) -> Unit = {},
@@ -89,6 +93,10 @@ fun PaywallScreen(
         "Just $symbol$formatted / month"
     } else {
         null
+    }
+
+    val discountPercentage = remember(monthlyPackage, yearlyPackage) {
+        calculateSavingsPercentage(monthlyPackage, yearlyPackage)
     }
 
     Box(
@@ -238,6 +246,7 @@ fun PaywallScreen(
                     monthlyEquivalent = monthlyEquivalent,
                     isSelected = selectedPlan == "yearly",
                     isBestValue = true,
+                    discountPercentage = discountPercentage,
                     onClick = { selectedPlan = "yearly" }
                 )
 
@@ -251,6 +260,7 @@ fun PaywallScreen(
                     monthlyEquivalent = null,
                     isSelected = selectedPlan == "monthly",
                     isBestValue = false,
+                    discountPercentage = null,
                     onClick = { selectedPlan = "monthly" }
                 )
 
@@ -340,6 +350,7 @@ private fun SubscriptionCard(
     monthlyEquivalent: String?,
     isSelected: Boolean,
     isBestValue: Boolean,
+    discountPercentage: Int? = null,
     onClick: () -> Unit
 ) {
     val borderColor = when {
@@ -448,27 +459,14 @@ private fun SubscriptionCard(
                 }
             }
 
-            // "SAVE 50%" badge — only on yearly best value card
+            // Dynamic savings badge — only on yearly best value card
             if (isBestValue) {
-                Box(
+                SavingsBadge(
+                    discountPercentage = discountPercentage,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .offset(x = 12.dp, y = (-10).dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.tertiary,
-                            shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 8.dp)
-                        )
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "SAVE 50%",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFF1A1C18),
-                        letterSpacing = 0.8.sp,
-                        fontSize = 10.sp
-                    )
-                }
+                )
             }
         }
     }
@@ -747,4 +745,54 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLeaf(
     }
 
     drawPath(path = path, color = color)
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+
+fun calculateSavingsPercentage(monthlyPackage: Package?, yearlyPackage: Package?): Int? {
+    if (monthlyPackage == null || yearlyPackage == null) return null
+
+    val monthlyPriceMicros = monthlyPackage.product.price.amountMicros
+    val yearlyPriceMicros = yearlyPackage.product.price.amountMicros
+
+    // Prevent division by zero or negative prices
+    if (monthlyPriceMicros <= 0L || yearlyPriceMicros <= 0L) return null
+
+    // Calculate how much 12 months of the monthly package would cost
+    val twelveMonthCost = monthlyPriceMicros * 12
+
+    // If the yearly price is somehow more expensive, there's no savings
+    if (yearlyPriceMicros >= twelveMonthCost) return 0
+
+    // Calculate percentage savings
+    val savings = twelveMonthCost - yearlyPriceMicros
+    val percentage = (savings.toDouble() / twelveMonthCost.toDouble()) * 100
+
+    return percentage.roundToInt()
+}
+
+@Composable
+fun SavingsBadge(
+    discountPercentage: Int?,
+    modifier: Modifier = Modifier
+) {
+    if (discountPercentage != null && discountPercentage > 0) {
+        Box(
+            modifier = modifier
+                .background(
+                    color = MaterialTheme.colorScheme.tertiary,
+                    shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 8.dp)
+                )
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+        ) {
+            Text(
+                text = "SAVE $discountPercentage%",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color(0xFF1A1C18),
+                letterSpacing = 0.8.sp,
+                fontSize = 10.sp
+            )
+        }
+    }
 }

@@ -34,6 +34,12 @@ class PremiumViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _monthlyPackage = MutableStateFlow<Package?>(null)
+    val monthlyPackage: StateFlow<Package?> = _monthlyPackage.asStateFlow()
+
+    private val _yearlyPackage = MutableStateFlow<Package?>(null)
+    val yearlyPackage: StateFlow<Package?> = _yearlyPackage.asStateFlow()
+
     private var cachedPackages: Map<String, Package>? = null
 
     init {
@@ -54,6 +60,8 @@ class PremiumViewModel(
             _monthlyPrice.value = current.monthly?.product?.price?.formatted ?: ""
             _yearlyPrice.value = current.annual?.product?.price?.formatted ?: ""
             
+            _monthlyPackage.value = current.monthly
+            _yearlyPackage.value = current.annual
             val packages = mutableMapOf<String, Package>()
             for (pkg in current.availablePackages) {
                 packages[pkg.product.id] = pkg
