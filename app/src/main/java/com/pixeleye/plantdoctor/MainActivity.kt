@@ -302,6 +302,22 @@ fun PlantDoctorNavHost(
     val hasSeenCameraShowcase by homeViewModel.hasSeenCameraShowcase.collectAsStateWithLifecycle()
     val hasSeenLongPressShowcase by homeViewModel.hasSeenLongPressShowcase.collectAsStateWithLifecycle()
 
+    // Listen for OneSignal In-App Message Clicks globally to trigger standard app navigation
+    LaunchedEffect(Unit) {
+        com.onesignal.OneSignal.InAppMessages.addClickListener(object : com.onesignal.inAppMessages.IInAppMessageClickListener {
+            override fun onClick(event: com.onesignal.inAppMessages.IInAppMessageClickEvent) {
+                if (event.result.actionId == "open_pro_paywall") {
+                    Log.d("PlantDoctor", "IAM Click detected: Navigating to Paywall")
+                    scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        if (NavigationDebouncer.canNavigate()) {
+                            navController.navigate("paywall")
+                        }
+                    }
+                }
+            }
+        })
+    }
+
     NavHost(
         navController = navController,
         startDestination = "splash"

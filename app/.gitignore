@@ -1,1 +1,30 @@
 /build
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+website
+../website
+release
+/release
+# --- Release & Build Files ---
+*.apk
+*.aab
+*.ap_
+*.aapt
+
+# --- Security & Keystore Files (ගොඩක් වැදගත්) ---
+*.jks
+*.keystore
+keystore.properties

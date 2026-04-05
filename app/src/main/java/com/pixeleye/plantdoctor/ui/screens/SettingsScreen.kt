@@ -62,9 +62,21 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material3.Switch
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.core.app.NotificationManagerCompat
+import com.onesignal.OneSignal
 import com.pixeleye.plantdoctor.data.UserPreferences
 import kotlinx.coroutines.launch
 
@@ -293,6 +305,18 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // ── Notification Settings ───────────────────────────
+            SettingLabel(
+                icon = Icons.Default.Notifications,
+                text = "Notifications"
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            NotificationSettingItem()
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             // ── Save Button ──────────────────────────────────────
             Button(
                 onClick = {
@@ -478,6 +502,87 @@ private fun SettingLabel(
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+fun NotificationSettingItem() {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    var areNotificationsEnabled by remember {
+        mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
+    }
+
+    var isSubscribed by remember {
+        mutableStateOf(OneSignal.User.pushSubscription.optedIn)
+    }
+
+    // Refresh OS-level notification status when returning to the app
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                areNotificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Push Notifications",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Receive alerts for plant care and updates",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (!areNotificationsEnabled) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Enable in System Settings",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                        }
+                        context.startActivity(intent)
+                    }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Switch(
+            checked = isSubscribed,
+            onCheckedChange = { checked ->
+                isSubscribed = checked
+                if (checked) {
+                    OneSignal.User.pushSubscription.optIn()
+                } else {
+                    OneSignal.User.pushSubscription.optOut()
+                }
+            },
+            enabled = areNotificationsEnabled
         )
     }
 }

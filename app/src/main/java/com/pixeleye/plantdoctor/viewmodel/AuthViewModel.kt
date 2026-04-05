@@ -56,6 +56,8 @@ class AuthViewModel(
             val restored = authManager.restoreSession()
             _authState.value = if (restored) {
                 Log.d(TAG, "Session restored: ${authManager.currentUserEmail}")
+                val userId = authManager.currentUserEmail ?: "anonymous"
+                com.onesignal.OneSignal.login(userId)
                 AuthState.Authenticated
             } else {
                 AuthState.Unauthenticated
@@ -71,6 +73,9 @@ class AuthViewModel(
             result.fold(
                 onSuccess = {
                     Log.d(TAG, "Sign-in successful: ${authManager.currentUserEmail}")
+                    
+                    val userId = authManager.currentUserEmail ?: "anonymous"
+                    com.onesignal.OneSignal.login(userId)
                     
                     // 1. Await User Data & Premium Status sequentially
                     // Execution pauses here until the network request returns
@@ -95,6 +100,7 @@ class AuthViewModel(
         return viewModelScope.async {
             billingManager?.logOut()
             authManager.signOut()
+            com.onesignal.OneSignal.logout()
             _authState.value = AuthState.Unauthenticated
         }
     }

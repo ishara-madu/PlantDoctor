@@ -279,6 +279,17 @@ Rules:
                 // ── SUCCESS! Universal Increment ────────────
                 incrementQuota()
 
+                // Trigger OneSignal IAM for Free users on their first successful scan
+                if (!isPremium && context != null) {
+                    val prefs = context.getSharedPreferences("OneSignalPrefs", Context.MODE_PRIVATE)
+                    val isFirstScanDone = prefs.getBoolean("is_first_scan_done", false)
+                    if (!isFirstScanDone) {
+                        prefs.edit().putBoolean("is_first_scan_done", true).apply()
+                        com.onesignal.OneSignal.InAppMessages.addTrigger("first_scan_done", "true")
+                        Log.d(TAG, "First scan detected for Free user. IAM trigger 'first_scan_done' fired!")
+                    }
+                }
+
                 // Upload to Supabase in background (only for confirmed plants)
                 uploadToSupabase(
                     context = context,
