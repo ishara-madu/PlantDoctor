@@ -31,6 +31,7 @@ fun CustomSnackbar(
         SnackbarType.SUCCESS -> Color(0xFF2E7D32) // Forest Green
         SnackbarType.ERROR -> Color(0xFFD32F2F)   // Material Red
         SnackbarType.INFO -> MaterialTheme.colorScheme.inverseSurface
+        SnackbarType.WARNING -> Color(0xFFFFA000) // Amber/Warning
     }
 
     val iconColor = if (type == SnackbarType.INFO) 

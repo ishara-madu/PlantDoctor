@@ -164,12 +164,12 @@ Rules:
                 }
 
                 if (currentQuota != null) {
-                    val maxLimit = if (isPremium) 50 else 3
+                    val maxLimit = if (isPremium) 50 else 6
                     if (currentQuota.dailyCount >= maxLimit) {
                         val limitMsg = if (isPremium) {
                             "Daily fair-use limit of 50 scans reached for PRO users."
                         } else {
-                            "Daily limit of 3 scans reached. Upgrade to PRO for 50 scans/day!"
+                            "Daily limit of 6 scans reached. Upgrade to PRO for 50 scans/day!"
                         }
                         _diagnosisState.value = DiagnosisState.Error(limitMsg)
                         return@launch
@@ -279,15 +279,9 @@ Rules:
                 // ── SUCCESS! Universal Increment ────────────
                 incrementQuota()
 
-                // Trigger OneSignal IAM for Free users on their first successful scan
-                if (!isPremium && context != null) {
-                    val prefs = context.getSharedPreferences("OneSignalPrefs", Context.MODE_PRIVATE)
-                    val isFirstScanDone = prefs.getBoolean("is_first_scan_done", false)
-                    if (!isFirstScanDone) {
-                        prefs.edit().putBoolean("is_first_scan_done", true).apply()
-                        com.onesignal.OneSignal.InAppMessages.addTrigger("first_scan_done", "true")
-                        Log.d(TAG, "First scan detected for Free user. IAM trigger 'first_scan_done' fired!")
-                    }
+                // Free User IAM Trigger for 50% discount
+                if (!isPremium) {
+                    com.onesignal.OneSignal.InAppMessages.addTrigger("scan_done", "true")
                 }
 
                 // Upload to Supabase in background (only for confirmed plants)

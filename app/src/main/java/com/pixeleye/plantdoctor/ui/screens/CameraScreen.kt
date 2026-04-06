@@ -455,28 +455,37 @@ private fun CameraContent(
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        showLimitDialog = false
                         if (activity != null) {
-                            showRewardedAd(
-                                activity = activity,
-                                ad = rewardedAd,
-                                onRewardEarned = {
-                                    rewardedAd = null
-                                    scope.launch {
-                                        diagnosisViewModel.incrementQuota()
-                                        onImageCaptured(capturedUri!!)
+                            showLimitDialog = false
+                            if (rewardedAd != null) {
+                                var didEarnReward = false
+                                showRewardedAd(
+                                    activity = activity,
+                                    ad = rewardedAd,
+                                    onRewardEarned = {
+                                        didEarnReward = true
+                                    },
+                                    onAdDismissed = {
+                                        rewardedAd = null
+                                        if (didEarnReward) {
+                                            scope.launch {
+                                                onImageCaptured(capturedUri!!)
+                                            }
+                                        }
+                                        loadRewardedAd(context) { newAd ->
+                                            rewardedAd = newAd
+                                        }
                                     }
-                                    loadRewardedAd(context) { newAd ->
-                                        rewardedAd = newAd
-                                    }
-                                },
-                                onAdDismissed = {
-                                    rewardedAd = null
-                                    loadRewardedAd(context) { newAd ->
-                                        rewardedAd = newAd
-                                    }
+                                )
+                            } else {
+                                diagnosisViewModel.showSnackbar(
+                                    "Ad is still loading. Please check your connection and try again.",
+                                    com.pixeleye.plantdoctor.ui.components.SnackbarType.WARNING
+                                )
+                                loadRewardedAd(context) { newAd ->
+                                    rewardedAd = newAd
                                 }
-                            )
+                            }
                         }
                     }) {
                         Text("Watch Ad")

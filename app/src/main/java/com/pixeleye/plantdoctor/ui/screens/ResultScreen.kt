@@ -107,7 +107,7 @@ fun ResultScreen(
     diagnosisTitle: String,
     diagnosisData: DiagnosisResponse?,
     confidence: Float? = null,
-    isLoading: Boolean = false,
+    isLoading: Boolean = true,
     showAd: Boolean = false,
     isPremium: Boolean = false,
     onBack: () -> Unit,
@@ -227,11 +227,12 @@ private fun LoadingContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(64.dp),
-            color = MaterialTheme.colorScheme.primary,
-            strokeWidth = 5.dp
-        )
+        Icon(
+                imageVector = Icons.Default.LocalFlorist,
+                contentDescription = "Loading Plant Vector",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(64.dp)
+            )
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = "Analyzing your plant...",

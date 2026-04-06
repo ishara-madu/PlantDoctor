@@ -9,7 +9,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 enum class SnackbarType {
     SUCCESS,
     ERROR,
-    INFO
+    INFO,
+    WARNING
 }
 
 data class SnackbarState(
@@ -22,5 +23,6 @@ fun SnackbarType.getIcon(): ImageVector {
         SnackbarType.SUCCESS -> Icons.Default.CheckCircle
         SnackbarType.ERROR -> Icons.Default.ErrorOutline
         SnackbarType.INFO -> Icons.Default.Info
+        SnackbarType.WARNING -> Icons.Default.Info
     }
 }
